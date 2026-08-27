@@ -91,3 +91,28 @@
 .ledgerDeleteButton{display:flex;align-items:center;justify-content:center;gap:5px;padding:8px 10px;border:1px solid #efc7c7;border-radius:9px;background:#fff7f7;color:#a83232;font-size:12px;font-weight:700}
 .ledgerDeleteButton:hover{background:#fff0f0;border-color:#dfabab}
 @media(max-width:700px){.confirmedLedgerRow{grid-template-columns:1fr auto}.confirmedLedgerRow>b{grid-column:2}.ledgerDeleteButton{grid-column:1/-1}.confirmedLedgerPanel h2 small{float:none;display:block;margin-top:4px}}
+
+.reportHero{display:grid;grid-template-columns:repeat(3,1fr);gap:0;margin-bottom:18px;padding:0;overflow:hidden}
+.reportHero>div{padding:22px;border-right:1px solid #e3eaf2}
+.reportHero>div:last-child{border-right:0}
+.reportHero span,.reportMetric span,.reportSummary span{display:block;color:#718198;font-size:12px;font-weight:700}
+.reportHero strong{display:block;margin-top:8px;color:#17365d;font-size:25px}
+.reportHero small{display:block;margin-top:5px;color:#8a96a5;font-size:11px}
+.reportCompare{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:18px}
+.reportMetric{padding:18px}
+.reportMetric strong{display:block;margin:8px 0 5px;color:#17365d;font-size:20px}
+.reportMetric small{color:#8a96a5;font-size:11px}
+.reportMetric em{display:block;margin-top:8px;font-style:normal;font-size:12px;font-weight:800}
+.reportGood{color:#16804a!important}
+.reportBad{color:#c14545!important}
+.reportGrid{align-items:start}
+.reportCategoryRow{display:grid;grid-template-columns:1fr 1.4fr auto;gap:12px;align-items:center;padding:11px 0;border-bottom:1px solid #edf1f5}
+.reportCategoryRow span{font-weight:700;color:#344a63}
+.reportCategoryRow small{color:#8995a4}
+.reportCategoryRow strong{font-size:12px}
+.reportSummary>div{padding:14px 0;border-bottom:1px solid #edf1f5}
+.reportSummary>div:last-child{border-bottom:0}
+.reportSummary strong{display:block;margin-top:5px;color:#17365d;font-size:15px}
+.reportSummary strong small{font-size:11px;color:#7d8998}
+@media(max-width:900px){.reportCompare{grid-template-columns:repeat(2,1fr)}.reportHero{grid-template-columns:1fr}.reportHero>div{border-right:0;border-bottom:1px solid #e3eaf2}}
+@media(max-width:560px){.reportCompare{grid-template-columns:1fr}.reportCategoryRow{grid-template-columns:1fr auto}.reportCategoryRow small{grid-column:1/-1}}

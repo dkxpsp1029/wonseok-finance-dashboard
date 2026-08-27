@@ -41,7 +41,7 @@ const ALL_CATS=[...new Set(Object.values(CATEGORY_MAP).flat())]
 const MANUAL_CATEGORIES=CATEGORY_MAP
 const ASSETS=47983679
 const DEBTS=19195089
-const APP_VERSION='0.10.2'
+const APP_VERSION='0.11.0'
 
 const won=n=>new Intl.NumberFormat('ko-KR',{style:'currency',currency:'KRW',maximumFractionDigits:0}).format(Number(n)||0)
 const monthKey=date=>(date||'').slice(0,7)
@@ -139,6 +139,58 @@ export default function App(){
     cat,
     monthTransactions.filter(t=>t.type==='Variable'&&t.category===cat).reduce((s,t)=>s+Number(t.amount||0),0)
   ]),[monthTransactions])
+
+  const previousMonth=useMemo(()=>{
+    if(!selectedMonth)return ''
+    const [y,m]=selectedMonth.split('-').map(Number)
+    const d=new Date(y,m-2,1)
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`
+  },[selectedMonth])
+
+  const previousMonthTransactions=useMemo(
+    ()=>ledger.filter(t=>monthKey(t.date)===previousMonth),
+    [ledger,previousMonth]
+  )
+
+  const previousTotals=useMemo(()=>{
+    const sum=type=>previousMonthTransactions.filter(t=>t.type===type).reduce((a,b)=>a+Number(b.amount||0),0)
+    const income=sum('Income'),saving=sum('Saving'),fixed=sum('Fixed'),variable=sum('Variable')
+    return {income,saving,fixed,variable,spending:fixed+variable,savingRate:income?saving/income*100:0}
+  },[previousMonthTransactions])
+
+  const report=useMemo(()=>{
+    const current={
+      income:totals.income,
+      saving:totals.saving,
+      fixed:totals.fixed,
+      variable:totals.variable,
+      spending:totals.fixed+totals.variable,
+      savingRate:totals.income?totals.saving/totals.income*100:0
+    }
+    const diff=(now,before)=>now-before
+    const cats=[...new Set([
+      ...monthTransactions.filter(t=>t.type==='Variable').map(t=>t.category),
+      ...previousMonthTransactions.filter(t=>t.type==='Variable').map(t=>t.category)
+    ])]
+    const categoryChanges=cats.map(category=>{
+      const now=monthTransactions.filter(t=>t.type==='Variable'&&t.category===category).reduce((a,b)=>a+Number(b.amount||0),0)
+      const before=previousMonthTransactions.filter(t=>t.type==='Variable'&&t.category===category).reduce((a,b)=>a+Number(b.amount||0),0)
+      return {category,now,before,diff:now-before}
+    }).sort((a,b)=>Math.abs(b.diff)-Math.abs(a.diff))
+    const increased=[...categoryChanges].filter(x=>x.diff>0).sort((a,b)=>b.diff-a.diff)[0]
+    const decreased=[...categoryChanges].filter(x=>x.diff<0).sort((a,b)=>a.diff-b.diff)[0]
+    return {current,diffs:{
+      income:diff(current.income,previousTotals.income),
+      saving:diff(current.saving,previousTotals.saving),
+      fixed:diff(current.fixed,previousTotals.fixed),
+      variable:diff(current.variable,previousTotals.variable),
+      spending:diff(current.spending,previousTotals.spending),
+      savingRate:current.savingRate-previousTotals.savingRate
+    },categoryChanges,increased,decreased}
+  },[totals,monthTransactions,previousMonthTransactions,previousTotals])
+
+  const signedWon=v=>`${v>0?'+ ':v<0?'- ':''}${won(Math.abs(v))}`
+  const signedPct=v=>`${v>0?'+':v<0?'-':''}${Math.abs(v).toFixed(1)}%p`
 
   const importMonths=useMemo(()=>{
     const months=[...new Set(transactions.map(t=>monthKey(t.date)).filter(Boolean))]
@@ -728,6 +780,7 @@ export default function App(){
       <div className="headerActions">
         <nav>
           <button className={tab==='dashboard'?'active':''} onClick={()=>setTab('dashboard')}>대시보드</button>
+          <button className={tab==='report'?'active':''} onClick={()=>setTab('report')}>월간 리포트</button>
           <button className={tab==='transactions'?'active':''} onClick={()=>setTab('transactions')}>거래내역</button>
           <button className={tab==='installments'?'active':''} onClick={()=>setTab('installments')}>할부 현황</button>
         </nav>
@@ -786,6 +839,49 @@ export default function App(){
             <button type="button" className="ledgerDeleteButton" onClick={()=>deleteLedgerItem(t)} title="확정 내역에서 삭제"><Trash2 size={16}/><span>삭제</span></button>
           </div>) : <div className="empty">이 달의 확정 내역이 없습니다.</div>}
         </div>
+      </section>
+    </> : tab==='report' ? <>
+      <div className="monthBar">
+        <div><span>월간 리포트</span><strong>{selectedMonth}</strong><em className="confirmedBadge">vs {previousMonth}</em></div>
+        <select value={selectedMonth} onChange={e=>setSelectedMonth(e.target.value)}>
+          {availableMonths.length===0 && <option value="2026-07">2026-07</option>}
+          {availableMonths.map(m=><option key={m} value={m}>{m.replace('-','년 ')}월</option>)}
+        </select>
+      </div>
+
+      <section className="reportHero panel">
+        <div><span>이번 달 총지출</span><strong>{won(report.current.spending)}</strong><small>고정비 + 변동비</small></div>
+        <div><span>전월 대비</span><strong className={report.diffs.spending>0?'reportBad':report.diffs.spending<0?'reportGood':''}>{signedWon(report.diffs.spending)}</strong><small>{previousMonth} 대비</small></div>
+        <div><span>저축률</span><strong>{report.current.savingRate.toFixed(1)}%</strong><small className={report.diffs.savingRate>=0?'reportGood':'reportBad'}>{signedPct(report.diffs.savingRate)}</small></div>
+      </section>
+
+      <section className="reportCompare">
+        {[
+          ['총수입',report.current.income,previousTotals.income,report.diffs.income],
+          ['저축',report.current.saving,previousTotals.saving,report.diffs.saving],
+          ['고정비',report.current.fixed,previousTotals.fixed,report.diffs.fixed],
+          ['변동비',report.current.variable,previousTotals.variable,report.diffs.variable]
+        ].map(([label,now,before,diff])=><div className="panel reportMetric" key={label}>
+          <span>{label}</span><strong>{won(now)}</strong>
+          <small>전월 {won(before)}</small>
+          <em className={diff>0?(label==='저축'||label==='총수입'?'reportGood':'reportBad'):diff<0?(label==='저축'||label==='총수입'?'reportBad':'reportGood'):''}>{signedWon(diff)}</em>
+        </div>)}
+      </section>
+
+      <section className="grid reportGrid">
+        <div className="panel"><h2>변동비 카테고리 증감 <small>{previousMonth} → {selectedMonth}</small></h2>
+          <div className="rows">
+            {report.categoryChanges.length?report.categoryChanges.map(x=><div className="reportCategoryRow" key={x.category}>
+              <span>{x.category}</span><small>{won(x.before)} → {won(x.now)}</small><strong className={x.diff>0?'reportBad':x.diff<0?'reportGood':''}>{signedWon(x.diff)}</strong>
+            </div>):<div className="empty">비교할 변동비 데이터가 없습니다.</div>}
+          </div>
+        </div>
+        <div className="panel"><h2>한 달 요약</h2><div className="reportSummary">
+          <div><span>총지출</span><strong className={report.diffs.spending<=0?'reportGood':'reportBad'}>{report.diffs.spending===0?'전월과 동일':`전월보다 ${won(Math.abs(report.diffs.spending))} ${report.diffs.spending>0?'증가':'감소'}`}</strong></div>
+          <div><span>가장 많이 늘어난 지출</span><strong>{report.increased?`${report.increased.category} +${won(report.increased.diff)}`:'없음'}</strong></div>
+          <div><span>가장 많이 줄어든 지출</span><strong>{report.decreased?`${report.decreased.category} -${won(Math.abs(report.decreased.diff))}`:'없음'}</strong></div>
+          <div><span>저축률</span><strong>{report.current.savingRate.toFixed(1)}% <small>({signedPct(report.diffs.savingRate)})</small></strong></div>
+        </div></div>
       </section>
     </> : tab==='transactions' ? <>
       <section className="importPanel panel">
