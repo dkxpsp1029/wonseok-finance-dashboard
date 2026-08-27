@@ -2,32 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { WalletCards, Landmark, PiggyBank, ReceiptText, Gauge, TrendingUp, Plus, Pencil, Trash2, Search, RotateCcw, Upload, FileSpreadsheet, X, Download, DatabaseBackup } from 'lucide-react'
 import * as XLSX from 'xlsx'
 
-const INITIAL = [
-  {id:1,date:'2026-07-01',description:'회사 월급',amount:3495434,type:'Income',category:'급여'},
-  {id:2,date:'2026-07-01',description:'양주 월세 지원',amount:200000,type:'Income',category:'기타수입'},
-  {id:3,date:'2026-07-01',description:'국민 청년드림적금',amount:500000,type:'Saving',category:'저축'},
-  {id:4,date:'2026-07-01',description:'우리 주택청약',amount:100000,type:'Saving',category:'저축'},
-  {id:5,date:'2026-07-01',description:'KB연금저축',amount:200000,type:'Saving',category:'저축'},
-  {id:6,date:'2026-07-01',description:'삼성 ISA',amount:200000,type:'Saving',category:'저축'},
-  {id:7,date:'2026-07-01',description:'월세',amount:415000,type:'Fixed',category:'주거'},
-  {id:8,date:'2026-07-01',description:'농협종합보험',amount:83671,type:'Fixed',category:'보험'},
-  {id:9,date:'2026-07-01',description:'리아나 치과보험',amount:36500,type:'Fixed',category:'보험'},
-  {id:10,date:'2026-07-01',description:'푸본현대보험',amount:34160,type:'Fixed',category:'보험'},
-  {id:11,date:'2026-07-01',description:'SK 인터넷',amount:17600,type:'Fixed',category:'통신'},
-  {id:12,date:'2026-07-01',description:'SKT 통신요금',amount:38670,type:'Fixed',category:'통신'},
-  {id:13,date:'2026-07-01',description:'유튜브 프리미엄',amount:14900,type:'Fixed',category:'구독'},
-  {id:14,date:'2026-07-01',description:'웨이브',amount:10900,type:'Fixed',category:'구독'},
-  {id:15,date:'2026-07-01',description:'LG 렌탈비',amount:20900,type:'Fixed',category:'렌탈'},
-  {id:16,date:'2026-07-01',description:'쿠팡 와우',amount:7890,type:'Fixed',category:'구독'},
-  {id:17,date:'2026-07-01',description:'와이즐리 구독',amount:2990,type:'Fixed',category:'구독'},
-  {id:18,date:'2026-07-01',description:'유니세프',amount:20000,type:'Fixed',category:'기부'},
-  {id:19,date:'2026-07-01',description:'레고 게임 구독',amount:24000,type:'Fixed',category:'구독'},
-  {id:20,date:'2026-07-01',description:'교통통장',amount:50000,type:'Fixed',category:'교통'},
-  {id:21,date:'2026-07-01',description:'마이너스통장 이자',amount:90000,type:'Fixed',category:'대출이자'},
-  {id:22,date:'2026-07-01',description:'용산운전센터 운동',amount:105000,type:'Fixed',category:'운동'},
-  {id:23,date:'2026-07-01',description:'우피아 모임',amount:10000,type:'Fixed',category:'모임'},
-  {id:24,date:'2026-07-01',description:'당뇨 치료 병원',amount:35000,type:'Fixed',category:'병원'}
-]
+const INITIAL = []
 
 const TYPE_LABELS={Income:'수입',Saving:'저축',Fixed:'고정비',Variable:'변동비'}
 const CATEGORY_MAP={
@@ -39,15 +14,18 @@ const CATEGORY_MAP={
 const VAR_CATS=CATEGORY_MAP.Variable
 const ALL_CATS=[...new Set(Object.values(CATEGORY_MAP).flat())]
 const MANUAL_CATEGORIES=CATEGORY_MAP
-const ASSETS=47983679
-const DEBTS=19195089
+const ASSETS=0
+const DEBTS=0
+const APP_NAME='개인 자산 대시보드'
 const APP_VERSION='0.11.0'
 
 const won=n=>new Intl.NumberFormat('ko-KR',{style:'currency',currency:'KRW',maximumFractionDigits:0}).format(Number(n)||0)
 const monthKey=date=>(date||'').slice(0,7)
+const todayKey=()=>new Date().toISOString().slice(0,10)
+const currentMonthKey=()=>todayKey().slice(0,7)
 const latestMonth=items=>{
   const months=[...new Set((items||[]).map(t=>monthKey(t.date)).filter(Boolean))]
-  return months.sort().reverse()[0]||'2026-07'
+  return months.sort().reverse()[0]||''
 }
 
 function Stat({label,value,sub,Icon}){
@@ -77,7 +55,7 @@ export default function App(){
   })
   const [selectedMonth,setSelectedMonth]=useState(()=>latestMonth(ledger))
   const [editingId,setEditingId]=useState(null)
-  const [form,setForm]=useState({date:'2026-08-11',description:'',amount:'',type:'Variable',category:'식비'})
+  const [form,setForm]=useState({date:todayKey(),description:'',amount:'',type:'Variable',category:'식비'})
   const [search,setSearch]=useState('')
   const [typeFilter,setTypeFilter]=useState('All')
   const [monthFilter,setMonthFilter]=useState('All')
@@ -91,7 +69,7 @@ export default function App(){
   const [installments,setInstallments]=useState(()=>{
     try{return JSON.parse(localStorage.getItem('wonseok-finance-installments')||'[]')}catch{return []}
   })
-  const [installmentForm,setInstallmentForm]=useState({description:'',card:'현대카드',totalAmount:'',months:'',startMonth:'2026-08'})
+  const [installmentForm,setInstallmentForm]=useState({description:'',card:'현대카드',totalAmount:'',months:'',startMonth:currentMonthKey()})
   const [installmentCandidates,setInstallmentCandidates]=useState([])
   const [duplicateOverrides,setDuplicateOverrides]=useState({})
   const [backupError,setBackupError]=useState('')
@@ -776,7 +754,7 @@ export default function App(){
 
   return <main className="app">
     <header>
-      <div><p>PERSONAL CFO</p><h1>원석 자산 대시보드</h1></div>
+      <div><p>PERSONAL CFO</p><h1>{APP_NAME}</h1></div>
       <div className="headerActions">
         <nav>
           <button className={tab==='dashboard'?'active':''} onClick={()=>setTab('dashboard')}>대시보드</button>
@@ -789,9 +767,9 @@ export default function App(){
 
     {tab==='dashboard' ? <>
       <div className="monthBar">
-        <div><span>조회 월</span><strong>{selectedMonth}</strong><em className="confirmedBadge">확정 데이터</em></div>
+        <div><span>조회 월</span><strong>{selectedMonth||'데이터 없음'}</strong><em className="confirmedBadge">확정 데이터</em></div>
         <select value={selectedMonth} onChange={e=>setSelectedMonth(e.target.value)}>
-          {availableMonths.length===0 && <option value="2026-07">2026-07</option>}
+          {availableMonths.length===0 && <option value="">데이터 없음</option>}
           {availableMonths.map(m=><option key={m} value={m}>{m.replace('-','년 ')}월</option>)}
         </select>
       </div>
@@ -831,7 +809,7 @@ export default function App(){
       </section>
 
       <section className="panel confirmedLedgerPanel">
-        <h2>대시보드 확정 내역 <small>{selectedMonth} · {monthTransactions.length}건</small></h2>
+        <h2>대시보드 확정 내역 <small>{selectedMonth||'데이터 없음'} · {monthTransactions.length}건</small></h2>
         <div className="confirmedLedgerList">
           {monthTransactions.length ? monthTransactions.map((t,i)=><div className="confirmedLedgerRow" key={t.ledgerId||`${t.id}-${t.date}-${i}`}>
             <div><strong>{t.description}</strong><small>{t.date} · {TYPE_LABELS[t.type]||t.type} · {t.category}</small></div>
@@ -842,9 +820,9 @@ export default function App(){
       </section>
     </> : tab==='report' ? <>
       <div className="monthBar">
-        <div><span>월간 리포트</span><strong>{selectedMonth}</strong><em className="confirmedBadge">vs {previousMonth}</em></div>
+        <div><span>월간 리포트</span><strong>{selectedMonth||'데이터 없음'}</strong><em className="confirmedBadge">vs {previousMonth||'이전 데이터 없음'}</em></div>
         <select value={selectedMonth} onChange={e=>setSelectedMonth(e.target.value)}>
-          {availableMonths.length===0 && <option value="2026-07">2026-07</option>}
+          {availableMonths.length===0 && <option value="">데이터 없음</option>}
           {availableMonths.map(m=><option key={m} value={m}>{m.replace('-','년 ')}월</option>)}
         </select>
       </div>
