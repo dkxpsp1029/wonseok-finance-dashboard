@@ -786,7 +786,7 @@ export default function App(){
       <section className="grid">
         <div className="panel"><h2>고정비 구성</h2><div className="rows">
           {fixedBy.length ? fixedBy.map(([c,a])=><div className="row" key={c}><span>{c}</span><strong>{won(a)}</strong><small>{totals.fixed?(a/totals.fixed*100).toFixed(1):0}%</small></div>)
-          : <div className="empty">이 달의 고정비가 없습니다.</div>}
+          : <div className="empty">이 달의 고정비가 아직 없습니다. 거래내역을 추가하거나 파일을 업로드해 시작하세요.</div>}
         </div></div>
 
         <div className="panel"><h2>월 현금흐름</h2><div className="rows">
@@ -815,7 +815,7 @@ export default function App(){
             <div><strong>{t.description}</strong><small>{t.date} · {TYPE_LABELS[t.type]||t.type} · {t.category}</small></div>
             <b>{won(t.amount)}</b>
             <button type="button" className="ledgerDeleteButton" onClick={()=>deleteLedgerItem(t)} title="확정 내역에서 삭제"><Trash2 size={16}/><span>삭제</span></button>
-          </div>) : <div className="empty">이 달의 확정 내역이 없습니다.</div>}
+          </div>) : <div className="empty">이번 달 확정 데이터가 없습니다. 거래내역 작업공간에서 내역을 정리한 뒤 대시보드에 반영해 주세요.</div>}
         </div>
       </section>
     </> : tab==='report' ? <>
@@ -851,7 +851,7 @@ export default function App(){
           <div className="rows">
             {report.categoryChanges.length?report.categoryChanges.map(x=><div className="reportCategoryRow" key={x.category}>
               <span>{x.category}</span><small>{won(x.before)} → {won(x.now)}</small><strong className={x.diff>0?'reportBad':x.diff<0?'reportGood':''}>{signedWon(x.diff)}</strong>
-            </div>):<div className="empty">비교할 변동비 데이터가 없습니다.</div>}
+            </div>):<div className="empty">비교할 데이터가 아직 없습니다. 두 달 이상의 거래를 반영하면 월간 리포트가 자동으로 정리됩니다.</div>}
           </div>
         </div>
         <div className="panel"><h2>한 달 요약</h2><div className="reportSummary">
@@ -975,7 +975,7 @@ export default function App(){
               <b>{won(t.amount)}</b>
               <button onClick={()=>edit(t)}><Pencil size={16}/></button>
               <button onClick={()=>remove(t.id)}><Trash2 size={16}/></button>
-            </div>) : <div className="empty">조건에 맞는 거래가 없습니다.</div>}
+            </div>) : <div className="empty">{transactions.length===0?'거래 내역이 아직 없습니다. 직접 추가하거나 카드·계좌 파일을 업로드해 시작하세요.':'조건에 맞는 거래가 없습니다. 검색어나 필터를 조정해 보세요.'}</div>}
           </div>
         </div>
       </section>
@@ -1010,7 +1010,7 @@ export default function App(){
               <div className="installmentTop"><div><strong>{x.description}</strong><small>{x.card} · {x.startMonth} 시작{x.lastStatementMonth?` · 최근 명세서 ${x.lastStatementMonth} (${x.lastKnownRound}/${x.months})`:''}</small></div><button onClick={()=>removeInstallment(x.id)}><Trash2 size={16}/></button></div>
               <div className="installmentNumbers"><span>구매금액 <b>{won(x.totalAmount)}</b></span><span>월 예상 <b>{won(st.monthly)}</b></span><span>진행 <b>{st.done?'완료':`${st.current}/${x.months}회`}</b></span><span>남은 회차 <b>{st.remaining}회</b></span></div>
               <div className="progress"><i style={{width:`${Math.min(100,(st.current/x.months)*100)}%`}}/></div>
-            </div>}):<div className="empty">등록된 할부가 없습니다. 카드 명세서에서 기억하기 어려운 할부만 추가하면 됩니다.</div>}
+            </div>}):<div className="empty">등록된 할부가 없습니다. 기억하기 어려운 할부 결제만 추가해 월별 부담을 한눈에 관리해 보세요.</div>}
           </div>
         </div>
       </section>
