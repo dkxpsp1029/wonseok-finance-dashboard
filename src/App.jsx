@@ -17,7 +17,7 @@ const MANUAL_CATEGORIES=CATEGORY_MAP
 const ASSETS=0
 const DEBTS=0
 const APP_NAME='개인 자산 대시보드'
-const APP_VERSION='0.11.0'
+const APP_VERSION='0.12.0'
 
 const won=n=>new Intl.NumberFormat('ko-KR',{style:'currency',currency:'KRW',maximumFractionDigits:0}).format(Number(n)||0)
 const monthKey=date=>(date||'').slice(0,7)
@@ -73,6 +73,11 @@ export default function App(){
   const [installmentCandidates,setInstallmentCandidates]=useState([])
   const [duplicateOverrides,setDuplicateOverrides]=useState({})
   const [backupError,setBackupError]=useState('')
+  const [selectedTransactionIds,setSelectedTransactionIds]=useState([])
+  const [selectedLedgerIds,setSelectedLedgerIds]=useState([])
+  const [monthlyBudgets,setMonthlyBudgets]=useState(()=>{
+    try{return JSON.parse(localStorage.getItem('wonseok-finance-monthly-budgets')||'{}')}catch{return {}}
+  })
 
   const save=next=>{
     setTransactions(next)
@@ -81,6 +86,10 @@ export default function App(){
   const saveLedger=next=>{
     setLedger(next)
     localStorage.setItem('wonseok-finance-ledger-v1',JSON.stringify(next))
+  }
+  const saveMonthlyBudgets=next=>{
+    setMonthlyBudgets(next)
+    localStorage.setItem('wonseok-finance-monthly-budgets',JSON.stringify(next))
   }
 
   const availableMonths=useMemo(()=>{
@@ -100,12 +109,22 @@ export default function App(){
     [ledger,selectedMonth]
   )
 
+  const budgetMonth=selectedMonth||currentMonthKey()
+  const budgetItems=monthlyBudgets[budgetMonth]||[]
+  const budgetTarget=budgetItems.reduce((sum,item)=>sum+Number(item.amount||0),0)
+  const hasBudgetTarget=budgetTarget>0
+
   const totals=useMemo(()=>{
     const sum=type=>monthTransactions.filter(t=>t.type===type).reduce((a,b)=>a+Number(b.amount||0),0)
     const income=sum('Income'), saving=sum('Saving'), fixed=sum('Fixed'), variable=sum('Variable')
     const budget=income-saving-fixed
     return {income,saving,fixed,variable,budget,remaining:budget-variable,net:ASSETS-DEBTS}
   },[monthTransactions])
+  const spending=totals.fixed+totals.variable
+  const savingRate=totals.income?(totals.saving/totals.income*100).toFixed(1):'0.0'
+  const variableBudgetBase=hasBudgetTarget?budgetTarget:totals.budget
+  const variableBudgetRemaining=variableBudgetBase-totals.variable
+  const variableBudgetProgress=variableBudgetBase>0?Math.min(100,(totals.variable/variableBudgetBase)*100):0
 
   const fixedBy=useMemo(()=>{
     const m={}
@@ -113,10 +132,17 @@ export default function App(){
     return Object.entries(m).sort((a,b)=>b[1]-a[1])
   },[monthTransactions])
 
-  const variableBy=useMemo(()=>VAR_CATS.map(cat=>[
+  const variableBy=useMemo(()=>[...new Set([...VAR_CATS,...monthTransactions.filter(t=>t.type==='Variable').map(t=>t.category)])].map(cat=>[
     cat,
     monthTransactions.filter(t=>t.type==='Variable'&&t.category===cat).reduce((s,t)=>s+Number(t.amount||0),0)
   ]),[monthTransactions])
+
+  const budgetStatusByCategory=useMemo(()=>budgetItems.map(item=>{
+    const spent=monthTransactions
+      .filter(t=>t.type==='Variable'&&t.category===item.category)
+      .reduce((sum,t)=>sum+Number(t.amount||0),0)
+    return {...item,spent,remaining:Number(item.amount||0)-spent}
+  }),[budgetItems,monthTransactions])
 
   const previousMonth=useMemo(()=>{
     if(!selectedMonth)return ''
@@ -184,6 +210,19 @@ export default function App(){
       .sort((a,b)=>b.date.localeCompare(a.date)||Number(b.id)-Number(a.id))
   },[transactions,search,typeFilter,monthFilter])
 
+  const visibleLedgerIds=useMemo(
+    ()=>monthTransactions.map((t,i)=>t.ledgerId||`${t.id}-${t.date}-${i}`),
+    [monthTransactions]
+  )
+
+  useEffect(()=>{
+    setSelectedTransactionIds(prev=>prev.filter(id=>transactions.some(t=>t.id===id)))
+  },[transactions])
+
+  useEffect(()=>{
+    setSelectedLedgerIds(prev=>prev.filter(id=>visibleLedgerIds.includes(id)))
+  },[visibleLedgerIds])
+
   const submit=e=>{
     e.preventDefault()
     if(!form.description.trim()||!Number(form.amount)) return
@@ -205,6 +244,49 @@ export default function App(){
 
   const remove=id=>{
     if(confirm('이 거래를 삭제할까요?')) save(transactions.filter(t=>t.id!==id))
+  }
+
+  const toggleTransactionSelection=id=>{
+    setSelectedTransactionIds(prev=>prev.includes(id)?prev.filter(x=>x!==id):[...prev,id])
+  }
+
+  const toggleLedgerSelection=id=>{
+    setSelectedLedgerIds(prev=>prev.includes(id)?prev.filter(x=>x!==id):[...prev,id])
+  }
+
+  const toggleAllVisibleTransactions=()=>{
+    const visibleIds=filteredTransactions.map(t=>t.id)
+    const allSelected=visibleIds.length>0&&visibleIds.every(id=>selectedTransactionIds.includes(id))
+    setSelectedTransactionIds(allSelected
+      ? selectedTransactionIds.filter(id=>!visibleIds.includes(id))
+      : [...new Set([...selectedTransactionIds,...visibleIds])]
+    )
+  }
+
+  const toggleAllVisibleLedger=()=>{
+    const allSelected=visibleLedgerIds.length>0&&visibleLedgerIds.every(id=>selectedLedgerIds.includes(id))
+    setSelectedLedgerIds(allSelected
+      ? selectedLedgerIds.filter(id=>!visibleLedgerIds.includes(id))
+      : [...new Set([...selectedLedgerIds,...visibleLedgerIds])]
+    )
+  }
+
+  const addBudgetItem=()=>{
+    const next=[...budgetItems,{id:`budget-${Date.now()}`,category:'',amount:''}]
+    saveMonthlyBudgets({...monthlyBudgets,[budgetMonth]:next})
+  }
+
+  const updateBudgetItem=(id,field,value)=>{
+    const next=budgetItems.map(item=>item.id===id?{...item,[field]:value}:item)
+    saveMonthlyBudgets({...monthlyBudgets,[budgetMonth]:next})
+  }
+
+  const removeBudgetItem=id=>{
+    const next=budgetItems.filter(item=>item.id!==id)
+    const updated={...monthlyBudgets}
+    if(next.length) updated[budgetMonth]=next
+    else delete updated[budgetMonth]
+    saveMonthlyBudgets(updated)
   }
 
   const resetFilters=()=>{
@@ -655,6 +737,18 @@ export default function App(){
     saveLedger(next)
   }
 
+  const deleteSelectedLedgerItems=()=>{
+    if(!selectedLedgerIds.length)return
+    const ok=window.confirm(`선택한 확정 내역 ${selectedLedgerIds.length}건을 삭제할까요?\n\n거래내역 작업공간은 변경되지 않습니다.`)
+    if(!ok)return
+    const next=ledger.filter((item,index)=>{
+      const rowId=item.ledgerId||`${item.id}-${item.date}-${index}`
+      return !selectedLedgerIds.includes(rowId)
+    })
+    saveLedger(next)
+    setSelectedLedgerIds([])
+  }
+
   const commitToLedger=()=>{
     if(!transactions.length){
       alert('대시보드에 반영할 거래내역이 없습니다.')
@@ -685,6 +779,14 @@ export default function App(){
     alert('거래내역 작업공간을 비웠습니다. 대시보드 확정 데이터는 유지됩니다.')
   }
 
+  const deleteSelectedTransactions=()=>{
+    if(!selectedTransactionIds.length)return
+    const ok=window.confirm(`선택한 거래내역 ${selectedTransactionIds.length}건을 삭제할까요?`)
+    if(!ok)return
+    save(transactions.filter(t=>!selectedTransactionIds.includes(t.id)))
+    setSelectedTransactionIds([])
+  }
+
   const exportBackup=()=>{
     const payload={
       app:'wonseok-finance-dashboard',
@@ -693,7 +795,8 @@ export default function App(){
       transactions,
       ledger,
       installments,
-      categoryRules
+      categoryRules,
+      monthlyBudgets
     }
     const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'})
     const url=URL.createObjectURL(blob)
@@ -728,7 +831,10 @@ export default function App(){
       setCategoryRules(nextRules)
       localStorage.setItem('wonseok-finance-category-rules',JSON.stringify(nextRules))
 
-      alert(`백업 복원 완료\n거래 ${parsed.transactions.length}건 · 할부 ${nextInstallments.length}건`)
+      const nextBudgets=parsed.monthlyBudgets&&typeof parsed.monthlyBudgets==='object'?parsed.monthlyBudgets:{}
+      saveMonthlyBudgets(nextBudgets)
+
+      alert(`백업 복원 완료\n거래 ${parsed.transactions.length}건 · 할부 ${nextInstallments.length}건 · 월 목표 ${Object.keys(nextBudgets).length}개월`)
     }catch(err){
       setBackupError(`복원 실패: ${err.message}`)
     }
@@ -774,50 +880,83 @@ export default function App(){
         </select>
       </div>
 
-      <section className="stats">
-        <Stat label="총수입" value={won(totals.income)} Icon={WalletCards}/>
-        <Stat label="순자산" value={won(totals.net)} Icon={Landmark}/>
-        <Stat label="저축" value={won(totals.saving)} sub={`저축률 ${totals.income?(totals.saving/totals.income*100).toFixed(1):0}%`} Icon={PiggyBank}/>
-        <Stat label="고정비" value={won(totals.fixed)} sub={`수입 대비 ${totals.income?(totals.fixed/totals.income*100).toFixed(1):0}%`} Icon={ReceiptText}/>
-        <Stat label="변동비 가용예산" value={won(totals.budget)} Icon={Gauge}/>
-        <Stat label="남은 변동비 예산" value={won(totals.remaining)} Icon={TrendingUp}/>
+      <section className="stats compactStats">
+        <Stat label={hasBudgetTarget?'남은 변동비 목표':'남은 변동비 예산'} value={won(variableBudgetRemaining)} sub={hasBudgetTarget?`목표 ${won(budgetTarget)} · 사용 ${won(totals.variable)}`:`가용예산 ${won(totals.budget)}`} Icon={TrendingUp}/>
+        <Stat label="총수입" value={won(totals.income)} sub={`저축률 ${savingRate}%`} Icon={WalletCards}/>
+        <Stat label="총지출" value={won(spending)} sub={`고정비 ${won(totals.fixed)} · 변동비 ${won(totals.variable)}`} Icon={ReceiptText}/>
+        <Stat label="순자산" value={won(totals.net)} sub={`자산 ${won(ASSETS)} · 부채 ${won(DEBTS)}`} Icon={Landmark}/>
       </section>
 
-      <section className="grid">
+      <section className="panel budgetPlanner">
+        <h2>이번 달 변동비 목표 <small>{budgetMonth}</small></h2>
+        <div className="budgetOverview">
+          <div><span>목표 금액</span><strong>{won(budgetTarget)}</strong></div>
+          <div><span>현재 사용</span><strong>{won(totals.variable)}</strong></div>
+          <div><span>남은 목표</span><strong className={variableBudgetRemaining<0?'reportBad':'reportGood'}>{won(variableBudgetRemaining)}</strong></div>
+          <div className="budgetProgress"><span><i style={{width:`${variableBudgetProgress}%`}}/></span><small>{hasBudgetTarget?`${variableBudgetProgress.toFixed(0)}% 사용`:'카테고리와 금액을 추가해 목표를 설정하세요.'}</small></div>
+        </div>
+        <div className="budgetEditor">
+          {budgetStatusByCategory.map(item=><div className="budgetTargetRow" key={item.id}>
+            <input list="variable-budget-categories" value={item.category} onChange={e=>updateBudgetItem(item.id,'category',e.target.value)} placeholder="카테고리" aria-label="목표 카테고리"/>
+            <input type="number" min="0" value={item.amount} onChange={e=>updateBudgetItem(item.id,'amount',e.target.value)} placeholder="목표 금액" aria-label="목표 금액"/>
+            <span>사용 {won(item.spent)} · <b className={item.remaining<0?'reportBad':'reportGood'}>{won(item.remaining)}</b></span>
+            <button type="button" onClick={()=>removeBudgetItem(item.id)} title="목표 삭제"><Trash2 size={16}/></button>
+          </div>)}
+          <datalist id="variable-budget-categories">{[...new Set([...VAR_CATS,...budgetItems.map(item=>item.category).filter(Boolean)])].map(category=><option key={category} value={category}/>)}</datalist>
+          <button type="button" className="addBudgetButton" onClick={addBudgetItem}><Plus size={16}/>카테고리 목표 추가</button>
+        </div>
+      </section>
+
+      <section className="grid unifiedGrid">
+        <div className="panel"><h2>이번 달 요약</h2><div className="rows">
+          <div className="row2"><span>저축</span><strong>{won(totals.saving)}</strong></div>
+          <div className="row2"><span>{hasBudgetTarget?'변동비 목표':'변동비 가용예산'}</span><strong>{won(variableBudgetBase)}</strong></div>
+          <div className="row2"><span>이번 달 거래 수</span><strong>{monthTransactions.length}건</strong></div>
+          <div className="row2 highlight"><span>{hasBudgetTarget?'남은 변동비 목표':'남은 변동비 예산'}</span><strong>{won(variableBudgetRemaining)}</strong></div>
+        </div></div>
+
+        <div className="panel"><h2>자산 / 현금흐름</h2><div className="rows">
+          <div className="row2"><span>총자산</span><strong>{won(ASSETS)}</strong></div>
+          <div className="row2"><span>총부채</span><strong>{won(DEBTS)}</strong></div>
+          <div className="row2"><span>순자산</span><strong>{won(totals.net)}</strong></div>
+          <div className="row2"><span>변동비 사용액</span><strong>{won(totals.variable)}</strong></div>
+        </div></div>
+      </section>
+
+      <section className="grid unifiedGrid">
         <div className="panel"><h2>고정비 구성</h2><div className="rows">
           {fixedBy.length ? fixedBy.map(([c,a])=><div className="row" key={c}><span>{c}</span><strong>{won(a)}</strong><small>{totals.fixed?(a/totals.fixed*100).toFixed(1):0}%</small></div>)
           : <div className="empty">이 달의 고정비가 아직 없습니다. 거래내역을 추가하거나 파일을 업로드해 시작하세요.</div>}
         </div></div>
 
-        <div className="panel"><h2>월 현금흐름</h2><div className="rows">
-          <div className="row2"><span>수입</span><strong>{won(totals.income)}</strong></div>
-          <div className="row2"><span>저축</span><strong>- {won(totals.saving)}</strong></div>
-          <div className="row2"><span>고정비</span><strong>- {won(totals.fixed)}</strong></div>
-          <div className="row2"><span>변동비 사용액</span><strong>- {won(totals.variable)}</strong></div>
-          <div className="row2 highlight"><span>남은 변동비 예산</span><strong>{won(totals.remaining)}</strong></div>
-        </div></div>
-
-        <div className="panel"><h2>변동비 카테고리</h2><div className="cards">
+        <div className="panel"><h2>변동비 카테고리</h2><div className="cards compactCards">
           {variableBy.map(([c,a])=><div className="mini" key={c}><span>{c}</span><strong>{won(a)}</strong></div>)}
         </div></div>
-
-        <div className="panel"><h2>자산 / 부채</h2><div className="rows">
-          <div className="row2"><span>총자산</span><strong>{won(ASSETS)}</strong></div>
-          <div className="row2"><span>총부채</span><strong>{won(DEBTS)}</strong></div>
-          <div className="row2 highlight"><span>순자산</span><strong>{won(totals.net)}</strong></div>
-        </div></div>
       </section>
 
-      <section className="panel confirmedLedgerPanel">
-        <h2>대시보드 확정 내역 <small>{selectedMonth||'데이터 없음'} · {monthTransactions.length}건</small></h2>
+      <details className="panel confirmedLedgerPanel compactDisclosure">
+        <summary>
+          <h2>대시보드 확정 내역 <small>{selectedMonth||'데이터 없음'} · {monthTransactions.length}건</small></h2>
+        </summary>
         <div className="confirmedLedgerList">
-          {monthTransactions.length ? monthTransactions.map((t,i)=><div className="confirmedLedgerRow" key={t.ledgerId||`${t.id}-${t.date}-${i}`}>
-            <div><strong>{t.description}</strong><small>{t.date} · {TYPE_LABELS[t.type]||t.type} · {t.category}</small></div>
-            <b>{won(t.amount)}</b>
-            <button type="button" className="ledgerDeleteButton" onClick={()=>deleteLedgerItem(t)} title="확정 내역에서 삭제"><Trash2 size={16}/><span>삭제</span></button>
-          </div>) : <div className="empty">이번 달 확정 데이터가 없습니다. 거래내역 작업공간에서 내역을 정리한 뒤 대시보드에 반영해 주세요.</div>}
+          {monthTransactions.length ? <>
+            <div className="listBulkBar">
+              <label className="checkLabel"><input type="checkbox" checked={visibleLedgerIds.length>0&&visibleLedgerIds.every(id=>selectedLedgerIds.includes(id))} onChange={toggleAllVisibleLedger}/> 전체 선택</label>
+              <span>{selectedLedgerIds.length}건 선택</span>
+              <button type="button" className="dangerButton" onClick={deleteSelectedLedgerItems} disabled={!selectedLedgerIds.length}><Trash2 size={16}/>선택 삭제</button>
+            </div>
+            {monthTransactions.map((t,i)=>{
+              const rowId=t.ledgerId||`${t.id}-${t.date}-${i}`
+              return <div className="confirmedLedgerRow selectableRow" key={rowId}>
+                <label className="rowCheck"><input type="checkbox" checked={selectedLedgerIds.includes(rowId)} onChange={()=>toggleLedgerSelection(rowId)}/></label>
+                <div><strong>{t.description}</strong><small>{t.date} · {TYPE_LABELS[t.type]||t.type} · {t.category}</small></div>
+                <b>{won(t.amount)}</b>
+                <button type="button" className="ledgerDeleteButton" onClick={()=>deleteLedgerItem(t)} title="확정 내역에서 삭제"><Trash2 size={16}/><span>삭제</span></button>
+              </div>
+            })}
+          </> : <div className="empty">이번 달 확정 데이터가 없습니다. 거래내역 작업공간에서 내역을 정리한 뒤 대시보드에 반영해 주세요.</div>}
         </div>
-      </section>
+      </details>
     </> : tab==='report' ? <>
       <div className="monthBar">
         <div><span>월간 리포트</span><strong>{selectedMonth||'데이터 없음'}</strong><em className="confirmedBadge">vs {previousMonth||'이전 데이터 없음'}</em></div>
@@ -833,33 +972,33 @@ export default function App(){
         <div><span>저축률</span><strong>{report.current.savingRate.toFixed(1)}%</strong><small className={report.diffs.savingRate>=0?'reportGood':'reportBad'}>{signedPct(report.diffs.savingRate)}</small></div>
       </section>
 
-      <section className="reportCompare">
-        {[
-          ['총수입',report.current.income,previousTotals.income,report.diffs.income],
-          ['저축',report.current.saving,previousTotals.saving,report.diffs.saving],
-          ['고정비',report.current.fixed,previousTotals.fixed,report.diffs.fixed],
-          ['변동비',report.current.variable,previousTotals.variable,report.diffs.variable]
-        ].map(([label,now,before,diff])=><div className="panel reportMetric" key={label}>
-          <span>{label}</span><strong>{won(now)}</strong>
-          <small>전월 {won(before)}</small>
-          <em className={diff>0?(label==='저축'||label==='총수입'?'reportGood':'reportBad'):diff<0?(label==='저축'||label==='총수입'?'reportBad':'reportGood'):''}>{signedWon(diff)}</em>
-        </div>)}
-      </section>
-
-      <section className="grid reportGrid">
-        <div className="panel"><h2>변동비 카테고리 증감 <small>{previousMonth} → {selectedMonth}</small></h2>
-          <div className="rows">
-            {report.categoryChanges.length?report.categoryChanges.map(x=><div className="reportCategoryRow" key={x.category}>
-              <span>{x.category}</span><small>{won(x.before)} → {won(x.now)}</small><strong className={x.diff>0?'reportBad':x.diff<0?'reportGood':''}>{signedWon(x.diff)}</strong>
-            </div>):<div className="empty">비교할 데이터가 아직 없습니다. 두 달 이상의 거래를 반영하면 월간 리포트가 자동으로 정리됩니다.</div>}
-          </div>
-        </div>
-        <div className="panel"><h2>한 달 요약</h2><div className="reportSummary">
+      <section className="grid unifiedGrid reportGrid">
+        <div className="panel"><h2>월간 비교 요약</h2><div className="rows">
+          {[
+            ['총수입',report.current.income,previousTotals.income,report.diffs.income],
+            ['저축',report.current.saving,previousTotals.saving,report.diffs.saving],
+            ['고정비',report.current.fixed,previousTotals.fixed,report.diffs.fixed],
+            ['변동비',report.current.variable,previousTotals.variable,report.diffs.variable]
+          ].map(([label,now,before,diff])=><div className="reportInlineRow" key={label}>
+            <div><span>{label}</span><small>전월 {won(before)}</small></div>
+            <strong>{won(now)}</strong>
+            <em className={diff>0?(label==='저축'||label==='총수입'?'reportGood':'reportBad'):diff<0?(label==='저축'||label==='총수입'?'reportBad':'reportGood'):''}>{signedWon(diff)}</em>
+          </div>)}
+        </div></div>
+        <div className="panel"><h2>한 달 요약</h2><div className="reportSummary compactSummary">
           <div><span>총지출</span><strong className={report.diffs.spending<=0?'reportGood':'reportBad'}>{report.diffs.spending===0?'전월과 동일':`전월보다 ${won(Math.abs(report.diffs.spending))} ${report.diffs.spending>0?'증가':'감소'}`}</strong></div>
           <div><span>가장 많이 늘어난 지출</span><strong>{report.increased?`${report.increased.category} +${won(report.increased.diff)}`:'없음'}</strong></div>
           <div><span>가장 많이 줄어든 지출</span><strong>{report.decreased?`${report.decreased.category} -${won(Math.abs(report.decreased.diff))}`:'없음'}</strong></div>
           <div><span>저축률</span><strong>{report.current.savingRate.toFixed(1)}% <small>({signedPct(report.diffs.savingRate)})</small></strong></div>
         </div></div>
+      </section>
+
+      <section className="panel reportWidePanel"><h2>변동비 카테고리 증감 <small>{previousMonth} → {selectedMonth}</small></h2>
+          <div className="rows">
+            {report.categoryChanges.length?report.categoryChanges.map(x=><div className="reportCategoryRow" key={x.category}>
+              <span>{x.category}</span><small>{won(x.before)} → {won(x.now)}</small><strong className={x.diff>0?'reportBad':x.diff<0?'reportGood':''}>{signedWon(x.diff)}</strong>
+            </div>):<div className="empty">비교할 데이터가 아직 없습니다. 두 달 이상의 거래를 반영하면 월간 리포트가 자동으로 정리됩니다.</div>}
+          </div>
       </section>
     </> : tab==='transactions' ? <>
       <section className="importPanel panel">
@@ -911,7 +1050,7 @@ export default function App(){
           </>}
         </div>
       </section>
-      <section className="ledgerCommitBar">
+      <section className="ledgerCommitBar unifiedActionBar">
         <div>
           <strong>거래내역 작업공간</strong>
           <small>분류가 끝난 내역만 대시보드의 월별 확정 데이터로 반영하세요.</small>
@@ -921,13 +1060,6 @@ export default function App(){
           <span>대시보드 확정 <b>{ledger.length}건</b></span>
         </div>
         <button type="button" className="commitLedgerButton" onClick={commitToLedger}>대시보드에 반영</button>
-      </section>
-
-      <section className="backupBar">
-        <div>
-          <DatabaseBackup size={18}/>
-          <span><strong>데이터 백업</strong><small>작업공간·대시보드 확정 데이터·할부·분류 규칙을 한 파일로 저장합니다.</small></span>
-        </div>
         <div className="backupActions">
           <button type="button" onClick={exportBackup}><Download size={16}/>백업 다운로드</button>
           <label className="backupUpload"><Upload size={16}/>백업 복원<input type="file" accept=".json,application/json" onChange={importBackup}/></label>
@@ -937,23 +1069,25 @@ export default function App(){
       </section>
 
       <section className="transactionLayout">
-        <div className="panel">
-          <h2>{editingId?'거래 수정':'거래 추가'}</h2>
-          <form onSubmit={submit}>
+        <details className="panel compactDisclosure" open={!!editingId}>
+          <summary>
+            <h2>{editingId?'거래 수정':'거래 추가'} <small>{editingId?'수정 중':'필요할 때만 열기'}</small></h2>
+          </summary>
+          <form onSubmit={submit} className="compactForm">
             <label>날짜<input type="date" value={form.date} onChange={e=>setForm({...form,date:e.target.value})}/></label>
             <label>내용<input value={form.description} onChange={e=>setForm({...form,description:e.target.value})} placeholder="예: 점심"/></label>
             <label>금액<input type="number" value={form.amount} onChange={e=>setForm({...form,amount:e.target.value})} placeholder="12000"/></label>
             <label>구분<select value={form.type} onChange={e=>{const type=e.target.value;setForm({...form,type,category:MANUAL_CATEGORIES[type]?.[0]||'기타'})}}>
               {Object.entries(TYPE_LABELS).map(([v,l])=><option key={v} value={v}>{l}</option>)}
             </select></label>
-            <label>카테고리<select list="cats" value={form.category} onChange={e=>setForm({...form,category:e.target.value})}>
+            <label>카테고리{form.type==='Variable' ? <input list="variable-categories" value={form.category} onChange={e=>setForm({...form,category:e.target.value})} placeholder="예: 식비"/> : <select value={form.category} onChange={e=>setForm({...form,category:e.target.value})}>
                 {(MANUAL_CATEGORIES[form.type]||['기타']).map(c=><option key={c} value={c}>{c}</option>)}
-              </select></label>
-            <datalist id="cats">{VAR_CATS.map(c=><option key={c} value={c}/>)}</datalist>
+              </select>}</label>
+            <datalist id="variable-categories">{[...new Set([...VAR_CATS,...budgetItems.map(item=>item.category).filter(Boolean)])].map(c=><option key={c} value={c}/>)}</datalist>
             <button className="primary" type="submit"><Plus size={16}/>{editingId?'수정 저장':'추가'}</button>
             {editingId&&<button type="button" onClick={()=>{setEditingId(null);setForm({...form,description:'',amount:''})}}>취소</button>}
           </form>
-        </div>
+        </details>
 
         <div className="panel">
           <h2>거래내역 <small>{filteredTransactions.length}건</small></h2>
@@ -970,12 +1104,20 @@ export default function App(){
             <button className="iconText" onClick={resetFilters}><RotateCcw size={16}/>필터 초기화</button>
           </div>
           <div className="transactionList">
-            {filteredTransactions.length ? filteredTransactions.map(t=><div className="transaction" key={t.id}>
-              <div><strong>{t.description}</strong><small>{t.date} · {TYPE_LABELS[t.type]} · {t.category} · {t.paymentMethod||'수동입력'}</small></div>
-              <b>{won(t.amount)}</b>
-              <button onClick={()=>edit(t)}><Pencil size={16}/></button>
-              <button onClick={()=>remove(t.id)}><Trash2 size={16}/></button>
-            </div>) : <div className="empty">{transactions.length===0?'거래 내역이 아직 없습니다. 직접 추가하거나 카드·계좌 파일을 업로드해 시작하세요.':'조건에 맞는 거래가 없습니다. 검색어나 필터를 조정해 보세요.'}</div>}
+            {filteredTransactions.length ? <>
+              <div className="listBulkBar">
+                <label className="checkLabel"><input type="checkbox" checked={filteredTransactions.length>0&&filteredTransactions.every(t=>selectedTransactionIds.includes(t.id))} onChange={toggleAllVisibleTransactions}/> 전체 선택</label>
+                <span>{selectedTransactionIds.length}건 선택</span>
+                <button type="button" className="dangerButton" onClick={deleteSelectedTransactions} disabled={!selectedTransactionIds.length}><Trash2 size={16}/>선택 삭제</button>
+              </div>
+              {filteredTransactions.map(t=><div className="transaction selectableRow" key={t.id}>
+                <label className="rowCheck"><input type="checkbox" checked={selectedTransactionIds.includes(t.id)} onChange={()=>toggleTransactionSelection(t.id)}/></label>
+                <div><strong>{t.description}</strong><small>{t.date} · {TYPE_LABELS[t.type]} · {t.category} · {t.paymentMethod||'수동입력'}</small></div>
+                <b>{won(t.amount)}</b>
+                <button onClick={()=>edit(t)}><Pencil size={16}/></button>
+                <button onClick={()=>remove(t.id)}><Trash2 size={16}/></button>
+              </div>)}
+            </> : <div className="empty">{transactions.length===0?'거래 내역이 아직 없습니다. 직접 추가하거나 카드·계좌 파일을 업로드해 시작하세요.':'조건에 맞는 거래가 없습니다. 검색어나 필터를 조정해 보세요.'}</div>}
           </div>
         </div>
       </section>
@@ -986,10 +1128,13 @@ export default function App(){
           {availableMonths.map(m=><option key={m} value={m}>{m}</option>)}
         </select>
       </div>
-      <section className="installmentSummary">
-        <div className="stat"><span>진행 중 할부</span><strong>{installments.filter(x=>!installmentStatus(x).done).length}건</strong></div>
-        <div className="stat"><span>이번 달 예상 할부액</span><strong>{won(installments.reduce((a,x)=>a+(installmentStatus(x).done?0:installmentStatus(x).monthly),0))}</strong></div>
-        <div className="stat"><span>남은 할부 원금</span><strong>{won(installments.reduce((a,x)=>{const st=installmentStatus(x);return a+st.monthly*st.remaining},0))}</strong></div>
+      <section className="panel installmentSummaryBar">
+        <h2>할부 요약</h2>
+        <div className="installmentSummaryInline">
+          <div><span>진행 중 할부</span><strong>{installments.filter(x=>!installmentStatus(x).done).length}건</strong></div>
+          <div><span>이번 달 예상 할부액</span><strong>{won(installments.reduce((a,x)=>a+(installmentStatus(x).done?0:installmentStatus(x).monthly),0))}</strong></div>
+          <div><span>남은 할부 원금</span><strong>{won(installments.reduce((a,x)=>{const st=installmentStatus(x);return a+st.monthly*st.remaining},0))}</strong></div>
+        </div>
       </section>
       <section className="transactionLayout installmentLayout">
         <div className="panel">
